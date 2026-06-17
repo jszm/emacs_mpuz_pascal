@@ -1,0 +1,6 @@
+bin/*
+!bin/mpuz_pascal.exe
+lib/
+*.o
+*.ppu
+*.compiled

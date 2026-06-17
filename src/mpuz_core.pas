@@ -1,0 +1,517 @@
+unit mpuz_core;
+
+{$mode objfpc}{$H+}
+
+{
+  Pascal recreation of GNU Emacs mpuz.el.
+  Copyright (C) 2026
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+}
+
+interface
+
+uses
+  SysUtils;
+
+const
+  DigitCount = 10;
+  MaxSquaresPerDigit = 32;
+
+type
+  TSquare = record
+    Row: Integer;
+    Col: Integer;
+  end;
+
+  TSquareList = record
+    Count: Integer;
+    Items: array[0..MaxSquaresPerDigit - 1] of TSquare;
+  end;
+
+  TBoardLines = array[1..10] of string;
+
+  TMpuzGame = record
+    DigitToLetter: array[0..DigitCount - 1] of Integer;
+    LetterToDigit: array[0..DigitCount - 1] of Integer;
+    FoundDigits: array[0..DigitCount - 1] of Boolean;
+    TrivialDigits: array[0..DigitCount - 1] of Boolean;
+    Board: array[0..DigitCount - 1] of TSquareList;
+    NbErrors: Integer;
+    NbCompletedGames: Integer;
+    NbCumulatedErrors: Integer;
+    InProgress: Boolean;
+    SolveWhenTrivial: Boolean;
+    AllowDoubleMultiplicator: Boolean;
+  end;
+
+  TGuessResult = (
+    grNoGame,
+    grBadInput,
+    grAlreadySolved,
+    grDoesNotAppear,
+    grDigitAlreadyPlaced,
+    grCorrect,
+    grIncorrect
+  );
+
+var
+  Game: TMpuzGame;
+
+function UpCaseAscii(const Ch: Char): Char;
+function AverageErrorsText: string;
+function DigitSolved(const Digit: Integer): Boolean;
+function DigitAppears(const Digit, Row, Col: Integer): Boolean;
+function CharForDigit(const Digit: Integer): Char;
+function BuildBoardLines: TBoardLines;
+function CheckAllSolved(const Row: Integer = 0; const Col: Integer = -1): Boolean;
+function ScoreText: string;
+function ExtractGuess(const Input: string; out LetterChar, DigitChar: Char): Boolean;
+function TryProposal(const LetterChar, DigitChar: Char; out CorrectDigit: Integer): TGuessResult;
+function TryGuess(const Input: string; out LetterChar, DigitChar: Char;
+  out CorrectDigit: Integer): TGuessResult;
+
+procedure InitGame;
+procedure InitGameWithSeed(const Seed: LongInt);
+procedure ClearBoard;
+procedure ClearDigitState;
+procedure BuildRandomPerm;
+procedure RandomPuzzle;
+procedure Solve(const Row: Integer = 0; const Col: Integer = -1);
+procedure StartNewGameCore;
+procedure CloseGameCore;
+
+implementation
+
+function UpCaseAscii(const Ch: Char): Char;
+begin
+  if (Ch >= 'a') and (Ch <= 'z') then
+    Result := Chr(Ord(Ch) - Ord('a') + Ord('A'))
+  else
+    Result := Ch;
+end;
+
+function AverageErrorsText: string;
+var
+  Value: Double;
+begin
+  if Game.NbCompletedGames = 0 then
+    Value := 0.0
+  else
+    Value := Game.NbCumulatedErrors / Game.NbCompletedGames;
+
+  Result := Format('%.2f', [Value]);
+  if DefaultFormatSettings.DecimalSeparator <> '.' then
+    Result := StringReplace(Result, DefaultFormatSettings.DecimalSeparator, '.',
+      [rfReplaceAll]);
+end;
+
+function DigitSolved(const Digit: Integer): Boolean;
+begin
+  Result := Game.FoundDigits[Digit] or Game.TrivialDigits[Digit];
+end;
+
+procedure ClearBoard;
+var
+  Digit: Integer;
+begin
+  for Digit := 0 to DigitCount - 1 do
+    Game.Board[Digit].Count := 0;
+end;
+
+procedure ClearDigitState;
+var
+  Digit: Integer;
+begin
+  for Digit := 0 to DigitCount - 1 do
+  begin
+    Game.FoundDigits[Digit] := False;
+    Game.TrivialDigits[Digit] := False;
+  end;
+end;
+
+procedure AddSquare(const Digit, Row, Col: Integer);
+var
+  Count: Integer;
+begin
+  Count := Game.Board[Digit].Count;
+  if Count >= MaxSquaresPerDigit then
+    raise Exception.Create('internal board square limit exceeded');
+
+  Game.Board[Digit].Items[Count].Row := Row;
+  Game.Board[Digit].Items[Count].Col := Col;
+  Inc(Game.Board[Digit].Count);
+end;
+
+procedure PutNumberOnBoard(Number, Row: Integer; const Columns: array of Integer);
+var
+  I: Integer;
+  Digit: Integer;
+begin
+  for I := Low(Columns) to High(Columns) do
+  begin
+    Digit := Number mod 10;
+    Number := Number div 10;
+    AddSquare(Digit, Row, Columns[I]);
+  end;
+end;
+
+procedure BuildRandomPerm;
+var
+  Letters: array[0..DigitCount - 1] of Integer;
+  Count: Integer;
+  Index: Integer;
+  Pos: Integer;
+  Elem: Integer;
+  I: Integer;
+begin
+  for I := 0 to DigitCount - 1 do
+    Letters[I] := I;
+
+  Count := DigitCount;
+  Index := DigitCount;
+  while Count > 0 do
+  begin
+    Pos := Random(Count);
+    Elem := Letters[Pos];
+
+    for I := Pos to Count - 2 do
+      Letters[I] := Letters[I + 1];
+
+    Dec(Count);
+    Dec(Index);
+    Game.DigitToLetter[Index] := Elem;
+    Game.LetterToDigit[Elem] := Index;
+  end;
+end;
+
+procedure RandomPuzzle;
+var
+  A: Integer;
+  MinDigit: Integer;
+  B1: Integer;
+  B2: Integer;
+  C: Integer;
+  D: Integer;
+  E: Integer;
+begin
+  BuildRandomPerm;
+  ClearBoard;
+
+  if Game.AllowDoubleMultiplicator then
+    A := 112 + Random(888)
+  else
+    A := 125 + Random(875);
+
+  MinDigit := 1 + (999 div A);
+  B1 := MinDigit + Random(10 - MinDigit);
+  repeat
+    B2 := MinDigit + Random(10 - MinDigit);
+  until Game.AllowDoubleMultiplicator or (B1 <> B2);
+
+  C := A * B2;
+  D := A * B1;
+  E := C + (D * 10);
+
+  PutNumberOnBoard(A, 2, [9, 7, 5]);
+  PutNumberOnBoard((B1 * 10) + B2, 4, [9, 7]);
+  PutNumberOnBoard(C, 6, [9, 7, 5, 3]);
+  PutNumberOnBoard(D, 8, [7, 5, 3, 1]);
+  PutNumberOnBoard(E, 10, [9, 7, 5, 3, 1]);
+end;
+
+function DigitAppears(const Digit, Row, Col: Integer): Boolean;
+var
+  I: Integer;
+  Square: TSquare;
+begin
+  Result := False;
+  if Game.Board[Digit].Count = 0 then
+    Exit;
+
+  if Row = 0 then
+    Exit(True);
+
+  for I := 0 to Game.Board[Digit].Count - 1 do
+  begin
+    Square := Game.Board[Digit].Items[I];
+    if (Square.Row = Row) and ((Col < 0) or (Square.Col = Col)) then
+      Exit(True);
+  end;
+end;
+
+procedure Solve(const Row: Integer = 0; const Col: Integer = -1);
+var
+  Digit: Integer;
+begin
+  for Digit := 0 to DigitCount - 1 do
+    if (not DigitSolved(Digit)) and ((Row = 0) or DigitAppears(Digit, Row, Col)) then
+      Game.TrivialDigits[Digit] := True;
+end;
+
+function CheckAllSolved(const Row: Integer = 0; const Col: Integer = -1): Boolean;
+var
+  Digit: Integer;
+  A: Boolean;
+  B1: Boolean;
+  B2: Boolean;
+  C: Boolean;
+  D: Boolean;
+  E: Boolean;
+  Changed: Boolean;
+begin
+  if Game.SolveWhenTrivial and (Row = 0) then
+  begin
+    A := False;
+    B1 := False;
+    B2 := False;
+    C := False;
+    D := False;
+    E := False;
+
+    repeat
+      Changed := False;
+
+      if not B1 then
+        B1 := CheckAllSolved(4, 7);
+      if not B2 then
+        B2 := CheckAllSolved(4, 9);
+      if not E then
+        E := CheckAllSolved(10, -1);
+      if not A then
+        A := CheckAllSolved(2, -1);
+
+      if (B1 and B2) or (E and (A or (B1 and B2))) then
+      begin
+        Solve;
+        Exit(True);
+      end;
+
+      if not D then
+        D := CheckAllSolved(8, -1);
+      if not C then
+        C := CheckAllSolved(6, -1);
+
+      if D and (not E) then
+      begin
+        Solve(10, -1);
+        Changed := True;
+      end
+      else if E and (C <> D) then
+      begin
+        if D then
+          Solve(6, -1)
+        else
+          Solve(8, -1);
+        Changed := True;
+      end
+      else if A and (B2 <> C) then
+      begin
+        if C then
+          Solve(4, 9)
+        else
+          Solve(6, 9);
+        Changed := True;
+      end
+      else if A and (B1 <> D) then
+      begin
+        if D then
+          Solve(4, 7)
+        else
+          Solve(8, 7);
+        Changed := True;
+      end
+      else if (not A) and ((B2 and C) or (B1 and D)) then
+      begin
+        Solve(2, -1);
+        Changed := True;
+      end;
+    until not Changed;
+  end;
+
+  for Digit := 0 to DigitCount - 1 do
+    if (not DigitSolved(Digit)) and DigitAppears(Digit, Row, Col) then
+      Exit(False);
+
+  Result := True;
+end;
+
+procedure SetCharAtColumn(var Line: string; const Col: Integer; const Ch: Char);
+var
+  Pos: Integer;
+begin
+  Pos := Col + 1;
+  if Length(Line) < Pos then
+    Line := Line + StringOfChar(' ', Pos - Length(Line));
+  Line[Pos] := Ch;
+end;
+
+function CharForDigit(const Digit: Integer): Char;
+begin
+  if DigitSolved(Digit) then
+    Result := Chr(Ord('0') + Digit)
+  else
+    Result := Chr(Ord('A') + Game.DigitToLetter[Digit]);
+end;
+
+procedure PaintDigit(var Lines: TBoardLines; const Digit: Integer);
+var
+  I: Integer;
+  Square: TSquare;
+begin
+  for I := 0 to Game.Board[Digit].Count - 1 do
+  begin
+    Square := Game.Board[Digit].Items[I];
+    if (Square.Row >= Low(Lines)) and (Square.Row <= High(Lines)) then
+      SetCharAtColumn(Lines[Square.Row], Square.Col, CharForDigit(Digit));
+  end;
+end;
+
+function BuildBoardLines: TBoardLines;
+var
+  Digit: Integer;
+begin
+  Result[1] := '';
+  Result[2] := '     . . .';
+  Result[3] := '        Number of errors (this game): ' + IntToStr(Game.NbErrors);
+  Result[4] := '    x  . .';
+  Result[5] := '   -------';
+  Result[6] := '   . . . .';
+  Result[7] := '        Number of completed games: ' + IntToStr(Game.NbCompletedGames);
+  Result[8] := ' . . . .';
+  Result[9] := ' ---------  Average number of errors: ' + AverageErrorsText;
+  Result[10] := ' . . . . .';
+
+  for Digit := 0 to DigitCount - 1 do
+    PaintDigit(Result, Digit);
+end;
+
+procedure StartNewGameCore;
+begin
+  Game.NbErrors := 0;
+  Game.InProgress := True;
+  ClearDigitState;
+  RandomPuzzle;
+end;
+
+function ScoreText: string;
+begin
+  case Game.NbErrors of
+    0: Result := 'perfect!';
+    1: Result := 'very good!';
+    2: Result := 'good.';
+    3: Result := 'not bad.';
+    4: Result := 'not too bad...';
+  else
+    if Game.NbErrors < 10 then
+      Result := 'bad!'
+    else if Game.NbErrors < 15 then
+      Result := 'awful.'
+    else
+      Result := 'not serious.';
+  end;
+end;
+
+procedure CloseGameCore;
+begin
+  Game.InProgress := False;
+  Inc(Game.NbCumulatedErrors, Game.NbErrors);
+  Inc(Game.NbCompletedGames);
+end;
+
+function ExtractGuess(const Input: string; out LetterChar, DigitChar: Char): Boolean;
+var
+  I: Integer;
+  Ch: Char;
+begin
+  Result := False;
+  LetterChar := #0;
+  DigitChar := #0;
+
+  for I := 1 to Length(Input) do
+  begin
+    Ch := UpCaseAscii(Input[I]);
+    if (LetterChar = #0) and (Ch >= 'A') and (Ch <= 'J') then
+      LetterChar := Ch
+    else if (DigitChar = #0) and (Ch >= '0') and (Ch <= '9') then
+      DigitChar := Ch;
+  end;
+
+  Result := (LetterChar <> #0) and (DigitChar <> #0);
+end;
+
+function TryProposal(const LetterChar, DigitChar: Char; out CorrectDigit: Integer): TGuessResult;
+var
+  Letter: Integer;
+  Digit: Integer;
+begin
+  CorrectDigit := -1;
+  Letter := Ord(UpCaseAscii(LetterChar)) - Ord('A');
+  Digit := Ord(DigitChar) - Ord('0');
+
+  if (Letter < 0) or (Letter >= DigitCount) or (Digit < 0) or (Digit >= DigitCount) then
+    Exit(grBadInput);
+
+  CorrectDigit := Game.LetterToDigit[Letter];
+
+  if DigitSolved(CorrectDigit) then
+    Result := grAlreadySolved
+  else if DigitSolved(Digit) then
+    Result := grDigitAlreadyPlaced
+  else if Digit = CorrectDigit then
+  begin
+    Game.FoundDigits[Digit] := True;
+    Result := grCorrect;
+  end
+  else
+  begin
+    Inc(Game.NbErrors);
+    Result := grIncorrect;
+  end;
+end;
+
+function TryGuess(const Input: string; out LetterChar, DigitChar: Char;
+  out CorrectDigit: Integer): TGuessResult;
+begin
+  LetterChar := #0;
+  DigitChar := #0;
+  CorrectDigit := -1;
+
+  if not Game.InProgress then
+    Exit(grNoGame);
+
+  if not ExtractGuess(Input, LetterChar, DigitChar) then
+    Exit(grBadInput);
+
+  CorrectDigit := Game.LetterToDigit[Ord(LetterChar) - Ord('A')];
+  if DigitSolved(CorrectDigit) then
+    Result := grAlreadySolved
+  else if Game.Board[CorrectDigit].Count = 0 then
+    Result := grDoesNotAppear
+  else
+    Result := TryProposal(LetterChar, DigitChar, CorrectDigit);
+end;
+
+procedure ResetGameDefaults;
+begin
+  FillChar(Game, SizeOf(Game), 0);
+  Game.SolveWhenTrivial := True;
+  Game.AllowDoubleMultiplicator := False;
+end;
+
+procedure InitGame;
+begin
+  Randomize;
+  ResetGameDefaults;
+end;
+
+procedure InitGameWithSeed(const Seed: LongInt);
+begin
+  ResetGameDefaults;
+  RandSeed := Seed;
+end;
+
+end.
