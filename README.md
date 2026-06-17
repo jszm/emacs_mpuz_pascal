@@ -39,8 +39,13 @@ Use guesses such as `A3`, `A=3`, or `A 3`.
 Commands:
 
 - `help` or `?`
-- `solution`
-- `solution 1` through `solution 5`
+- `solution`: reveal the whole puzzle
+- `solution 1` through `solution 5`: reveal one row only
+  - `1`: multiplicand
+  - `2`: multiplier
+  - `3`: first partial product
+  - `4`: second partial product
+  - `5`: final product
 - `new`
 - `abort`
 - `quit`

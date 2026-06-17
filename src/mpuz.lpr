@@ -154,6 +154,9 @@ begin
   WriteLn('Each letter A-J stands for one digit 0-9.');
   WriteLn('Guess with A3, A=3, or A 3.');
   WriteLn('Commands: help, solution [1-5], new, abort, quit.');
+  WriteLn('  solution reveals the whole puzzle.');
+  WriteLn('  solution N reveals row N: 1=multiplicand, 2=multiplier,');
+  WriteLn('    3=first partial product, 4=second partial product, 5=final product.');
 end;
 
 procedure AbortGame;
