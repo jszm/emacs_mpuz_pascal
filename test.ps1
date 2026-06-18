@@ -32,3 +32,9 @@ if ($LASTEXITCODE -ne 0) {
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
+
+& (Join-Path $Root 'tests\test_console_transcripts.ps1') `
+    -Exe (Join-Path $OutDir 'mpuz_pascal.exe')
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}

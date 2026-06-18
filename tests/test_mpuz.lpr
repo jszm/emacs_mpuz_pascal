@@ -299,17 +299,17 @@ begin
   Lines := BuildBoardLines;
 
   CheckEqualsStr('   -------', Lines[5], 'first separator line');
-  CheckEqualsInt(18, Pos('Number of errors (this game):', Lines[3]),
+  CheckEqualsInt(31, Pos('Number of errors (this game):', Lines[3]),
     'error label aligned to console stats column');
-  CheckEqualsInt(73, Pos(IntToStr(Game.NbErrors), Lines[3]),
+  CheckEqualsInt(61, Pos(IntToStr(Game.NbErrors), Lines[3]),
     'error counter aligned to console value column');
-  CheckEqualsInt(18, Pos('Number of completed games:', Lines[7]),
+  CheckEqualsInt(31, Pos('Number of completed games:', Lines[7]),
     'completed label aligned to console stats column');
-  CheckEqualsInt(73, Pos(IntToStr(Game.NbCompletedGames), Lines[7]),
+  CheckEqualsInt(61, Pos(IntToStr(Game.NbCompletedGames), Lines[7]),
     'completed counter aligned to console value column');
-  CheckEqualsInt(18, Pos('Average number of errors:', Lines[9]),
+  CheckEqualsInt(31, Pos('Average number of errors:', Lines[9]),
     'average label aligned after separator');
-  CheckEqualsInt(73, Pos(AverageErrorsText, Lines[9]),
+  CheckEqualsInt(61, Pos(AverageErrorsText, Lines[9]),
     'average value aligned to console value column');
 
   Digit := DigitAt(2, 5);
@@ -467,13 +467,25 @@ begin
 end;
 
 procedure TestPartialSolve;
+var
+  Digit: Integer;
+  FoundUnrelatedDigit: Boolean;
 begin
   InitGameWithSeed(6006);
   StartNewGameCore;
 
   Solve(2, -1);
   Check(CheckAllSolved(2, -1), 'row solve solves multiplicand row');
-  Check(not CheckAllSolved(4, 7), 'unrelated multiplier cell remains unsolved');
+
+  FoundUnrelatedDigit := False;
+  for Digit := 0 to DigitCount - 1 do
+    if (Game.Board[Digit].Count > 0) and (not DigitAppears(Digit, 2, -1)) then
+    begin
+      FoundUnrelatedDigit := True;
+      Check(not DigitSolved(Digit), 'unrelated appearing digit remains unsolved');
+      Break;
+    end;
+  Check(FoundUnrelatedDigit, 'found an appearing digit outside solved row');
 end;
 
 procedure TestInvalidDigitQueries;

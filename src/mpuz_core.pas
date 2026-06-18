@@ -20,8 +20,8 @@ uses
 const
   DigitCount = 10;
   MaxSquaresPerDigit = 32;
-  StatsLabelColumn = 17;
-  StatsValueColumn = 72;
+  StatsLabelColumn = 30;
+  StatsValueColumn = 60;
 
 type
   TSquare = record
@@ -60,6 +60,8 @@ type
     grIncorrect
   );
 
+  TRandomIntProvider = function(const Limit: Integer): Integer;
+
 var
   Game: TMpuzGame;
 
@@ -78,6 +80,8 @@ function TryGuess(const Input: string; out LetterChar, DigitChar: Char;
 
 procedure InitGame;
 procedure InitGameWithSeed(const Seed: LongInt);
+procedure SetRandomIntProvider(const Provider: TRandomIntProvider);
+procedure ResetRandomIntProvider;
 procedure ClearBoard;
 procedure ClearDigitState;
 procedure BuildRandomPerm;
@@ -87,6 +91,9 @@ procedure StartNewGameCore;
 procedure CloseGameCore;
 
 implementation
+
+var
+  RandomIntProvider: TRandomIntProvider = nil;
 
 function UpCaseAscii(const Ch: Char): Char;
 begin
@@ -104,6 +111,21 @@ end;
 function ValidDigit(const Digit: Integer): Boolean;
 begin
   Result := (Digit >= 0) and (Digit < DigitCount);
+end;
+
+function NextRandomInt(const Limit: Integer): Integer;
+begin
+  if Limit <= 0 then
+    raise Exception.CreateFmt('invalid random limit %d', [Limit]);
+
+  if Assigned(RandomIntProvider) then
+    Result := RandomIntProvider(Limit)
+  else
+    Result := Random(Limit);
+
+  if (Result < 0) or (Result >= Limit) then
+    raise Exception.CreateFmt('random provider returned %d for limit %d',
+      [Result, Limit]);
 end;
 
 function AverageErrorsText: string;
@@ -190,7 +212,7 @@ begin
   Index := DigitCount;
   while Count > 0 do
   begin
-    Pos := Random(Count);
+    Pos := NextRandomInt(Count);
     Elem := Letters[Pos];
 
     for I := Pos to Count - 2 do
@@ -217,14 +239,14 @@ begin
   ClearBoard;
 
   if Game.AllowDoubleMultiplicator then
-    A := 112 + Random(888)
+    A := 112 + NextRandomInt(888)
   else
-    A := 125 + Random(875);
+    A := 125 + NextRandomInt(875);
 
   MinDigit := 1 + (999 div A);
-  B1 := MinDigit + Random(10 - MinDigit);
+  B1 := MinDigit + NextRandomInt(10 - MinDigit);
   repeat
-    B2 := MinDigit + Random(10 - MinDigit);
+    B2 := MinDigit + NextRandomInt(10 - MinDigit);
   until Game.AllowDoubleMultiplicator or (B1 <> B2);
 
   C := A * B2;
@@ -317,7 +339,7 @@ begin
       if not A then
         A := CheckAllSolved(2, -1);
 
-      if (B1 and B2) or (E and (A or (B1 and B2))) then
+      if (A and B1 and B2) or (E and (A or (B1 and B2))) then
       begin
         Solve;
         Exit(True);
@@ -328,7 +350,7 @@ begin
       if not C then
         C := CheckAllSolved(6, -1);
 
-      if D and (not E) then
+      if C and D and (not E) then
       begin
         Changed := MarkSolved(10, -1);
       end
@@ -598,6 +620,16 @@ procedure InitGameWithSeed(const Seed: LongInt);
 begin
   ResetGameDefaults;
   RandSeed := Seed;
+end;
+
+procedure SetRandomIntProvider(const Provider: TRandomIntProvider);
+begin
+  RandomIntProvider := Provider;
+end;
+
+procedure ResetRandomIntProvider;
+begin
+  RandomIntProvider := nil;
 end;
 
 end.

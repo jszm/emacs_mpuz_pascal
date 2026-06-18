@@ -59,7 +59,17 @@ Commands:
 The regression test executable uses fixed random seeds and checks the
 digit/letter permutation, multiplication identities, board coordinates,
 rendered board lines, guess parsing, correct and incorrect guess handling,
-auto-solve behavior, and statistics updates.
+auto-solve behavior, statistics updates, and console command transcripts.
+
+To compare deterministic snapshots against GNU Emacs `lisp/play/mpuz.el`, run:
+
+```powershell
+.\parity.ps1
+```
+
+The parity runner expects batch Emacs at
+`C:\localdata\tools\emacs-30.2\bin\emacs.exe` by default. Set `EMACS_EXE` and
+`EMACS_MPUZ_EL` to use a different Emacs executable or `mpuz.el` source file.
 
 ## Notes
 
