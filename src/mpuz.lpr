@@ -21,6 +21,12 @@ var
   Answer: string;
 begin
   Write(Prompt);
+  if EOF then
+  begin
+    WriteLn;
+    Exit(False);
+  end;
+
   ReadLn(Answer);
   Answer := Trim(Answer);
   if Answer = '' then
@@ -49,14 +55,17 @@ begin
   WriteLn('Here we go...');
   StartNewGameCore;
   PaintBoard;
+  WriteLn;
   WriteLn('Your try?');
 end;
 
-procedure CloseGame;
+function CloseGame: Boolean;
 var
   MessageText: string;
   ErrorSuffix: string;
 begin
+  Result := True;
+
   if Game.NbErrors = 1 then
     ErrorSuffix := ''
   else
@@ -69,19 +78,23 @@ begin
   PaintBoard;
   WriteLn(MessageText);
 
-  if YesNoPrompt(MessageText + ' Start a new game? ', False) then
+  if YesNoPrompt('Start a new game? ', False) then
     StartNewGame
   else
+  begin
     WriteLn('Good Bye!');
+    Result := False;
+  end;
 end;
 
-procedure TryGuessCommand(const Input: string);
+function TryGuessCommand(const Input: string): Boolean;
 var
   LetterChar: Char;
   DigitChar: Char;
   CorrectDigit: Integer;
   ResultCode: TGuessResult;
 begin
+  Result := True;
   ResultCode := TryGuess(Input, LetterChar, DigitChar, CorrectDigit);
 
   case ResultCode of
@@ -104,7 +117,7 @@ begin
       begin
         WriteLn(LetterChar, ' = ', DigitChar, ' correct!');
         if CheckAllSolved then
-          CloseGame
+          Result := CloseGame
         else
           PaintBoard;
       end;
@@ -116,12 +129,22 @@ begin
   end;
 end;
 
-procedure ShowSolutionCommand(const Input: string);
+function ShowSolutionCommand(const Input: string): Boolean;
 var
   Arg: string;
   RowNumber: Integer;
   Code: Integer;
 begin
+  Result := True;
+  if not Game.InProgress then
+  begin
+    if YesNoPrompt('Start a new game? ', True) then
+      StartNewGame
+    else
+      WriteLn('OK. I won''t.');
+    Exit;
+  end;
+
   Arg := Trim(Copy(Input, Pos(' ', Input + ' ') + 1, MaxInt));
 
   if Arg = '' then
@@ -138,7 +161,7 @@ begin
   end;
 
   if CheckAllSolved then
-    CloseGame
+    Result := CloseGame
   else
     PaintBoard;
 end;
@@ -146,6 +169,37 @@ end;
 function IsCommand(const Input, Name: string): Boolean;
 begin
   Result := (Input = Name) or (Pos(Name + ' ', Input) = 1);
+end;
+
+function NormalizeCommand(const Input: string): string;
+var
+  I: Integer;
+  Ch: Char;
+  LastWasSpace: Boolean;
+begin
+  Result := '';
+  LastWasSpace := False;
+
+  for I := 1 to Length(Input) do
+  begin
+    Ch := Input[I];
+    if Ord(Ch) <= Ord(' ') then
+    begin
+      if (Result <> '') and (not LastWasSpace) then
+      begin
+        Result := Result + ' ';
+        LastWasSpace := True;
+      end;
+    end
+    else
+    begin
+      Result := Result + LowerCase(Ch);
+      LastWasSpace := False;
+    end;
+  end;
+
+  if (Result <> '') and (Result[Length(Result)] = ' ') then
+    Delete(Result, Length(Result), 1);
 end;
 
 procedure PrintHelp;
@@ -161,6 +215,12 @@ end;
 
 procedure AbortGame;
 begin
+  if not Game.InProgress then
+  begin
+    WriteLn('No game in progress.');
+    Exit;
+  end;
+
   if YesNoPrompt('Abort game? ', False) then
   begin
     Game.InProgress := False;
@@ -176,15 +236,17 @@ procedure RunInteractive;
 var
   LineInput: string;
   Command: string;
+  KeepRunning: Boolean;
 begin
   StartNewGame;
+  KeepRunning := True;
 
   repeat
     Write('> ');
     if EOF then
       Break;
     ReadLn(LineInput);
-    Command := LowerCase(Trim(LineInput));
+    Command := NormalizeCommand(LineInput);
 
     if Command = '' then
       Continue
@@ -197,17 +259,17 @@ begin
     else if Command = 'abort' then
       AbortGame
     else if IsCommand(Command, 'solution') then
-      ShowSolutionCommand(Command)
+      KeepRunning := ShowSolutionCommand(Command)
     else if IsCommand(Command, 'solve') then
-      ShowSolutionCommand('solution' + Copy(Command, 6, MaxInt))
+      KeepRunning := ShowSolutionCommand('solution' + Copy(Command, 6, MaxInt))
     else
-      TryGuessCommand(LineInput);
-  until False;
+      KeepRunning := TryGuessCommand(LineInput);
+  until not KeepRunning;
 end;
 
 procedure RunSmoke;
 begin
-  StartNewGame;
+  StartNewGameCore;
   Solve;
   if not CheckAllSolved then
     Halt(2);

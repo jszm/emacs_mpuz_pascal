@@ -20,6 +20,8 @@ uses
 const
   DigitCount = 10;
   MaxSquaresPerDigit = 32;
+  StatsLabelColumn = 17;
+  StatsValueColumn = 72;
 
 type
   TSquare = record
@@ -94,6 +96,16 @@ begin
     Result := Ch;
 end;
 
+function IsAsciiWhitespace(const Ch: Char): Boolean;
+begin
+  Result := Ord(Ch) <= Ord(' ');
+end;
+
+function ValidDigit(const Digit: Integer): Boolean;
+begin
+  Result := (Digit >= 0) and (Digit < DigitCount);
+end;
+
 function AverageErrorsText: string;
 var
   Value: Double;
@@ -111,6 +123,9 @@ end;
 
 function DigitSolved(const Digit: Integer): Boolean;
 begin
+  if not ValidDigit(Digit) then
+    Exit(False);
+
   Result := Game.FoundDigits[Digit] or Game.TrivialDigits[Digit];
 end;
 
@@ -229,6 +244,9 @@ var
   Square: TSquare;
 begin
   Result := False;
+  if not ValidDigit(Digit) then
+    Exit;
+
   if Game.Board[Digit].Count = 0 then
     Exit;
 
@@ -243,13 +261,25 @@ begin
   end;
 end;
 
-procedure Solve(const Row: Integer = 0; const Col: Integer = -1);
+function MarkSolved(const Row: Integer = 0; const Col: Integer = -1): Boolean;
 var
   Digit: Integer;
 begin
+  Result := False;
+  if not Game.InProgress then
+    Exit;
+
   for Digit := 0 to DigitCount - 1 do
     if (not DigitSolved(Digit)) and ((Row = 0) or DigitAppears(Digit, Row, Col)) then
+    begin
       Game.TrivialDigits[Digit] := True;
+      Result := True;
+    end;
+end;
+
+procedure Solve(const Row: Integer = 0; const Col: Integer = -1);
+begin
+  MarkSolved(Row, Col);
 end;
 
 function CheckAllSolved(const Row: Integer = 0; const Col: Integer = -1): Boolean;
@@ -263,6 +293,9 @@ var
   E: Boolean;
   Changed: Boolean;
 begin
+  if not Game.InProgress then
+    Exit(False);
+
   if Game.SolveWhenTrivial and (Row = 0) then
   begin
     A := False;
@@ -297,37 +330,32 @@ begin
 
       if D and (not E) then
       begin
-        Solve(10, -1);
-        Changed := True;
+        Changed := MarkSolved(10, -1);
       end
       else if E and (C <> D) then
       begin
         if D then
-          Solve(6, -1)
+          Changed := MarkSolved(6, -1)
         else
-          Solve(8, -1);
-        Changed := True;
+          Changed := MarkSolved(8, -1);
       end
       else if A and (B2 <> C) then
       begin
         if C then
-          Solve(4, 9)
+          Changed := MarkSolved(4, 9)
         else
-          Solve(6, 9);
-        Changed := True;
+          Changed := MarkSolved(6, 9);
       end
       else if A and (B1 <> D) then
       begin
         if D then
-          Solve(4, 7)
+          Changed := MarkSolved(4, 7)
         else
-          Solve(8, 7);
-        Changed := True;
+          Changed := MarkSolved(8, 7);
       end
       else if (not A) and ((B2 and C) or (B1 and D)) then
       begin
-        Solve(2, -1);
-        Changed := True;
+        Changed := MarkSolved(2, -1);
       end;
     until not Changed;
   end;
@@ -350,11 +378,21 @@ begin
 end;
 
 function CharForDigit(const Digit: Integer): Char;
+var
+  Letter: Integer;
 begin
+  if not ValidDigit(Digit) then
+    Exit('?');
+
   if DigitSolved(Digit) then
     Result := Chr(Ord('0') + Digit)
   else
-    Result := Chr(Ord('A') + Game.DigitToLetter[Digit]);
+  begin
+    Letter := Game.DigitToLetter[Digit];
+    if not ValidDigit(Letter) then
+      Exit('?');
+    Result := Chr(Ord('A') + Letter);
+  end;
 end;
 
 procedure PaintDigit(var Lines: TBoardLines; const Digit: Integer);
@@ -370,19 +408,35 @@ begin
   end;
 end;
 
+function PadToColumn(const Prefix: string; const Column: Integer): string;
+begin
+  Result := Prefix;
+  if Length(Result) < Column then
+    Result := Result + StringOfChar(' ', Column - Length(Result));
+end;
+
+function StatsLine(const Prefix, LabelText, ValueText: string): string;
+begin
+  Result := PadToColumn(Prefix, StatsLabelColumn) + LabelText;
+  Result := PadToColumn(Result, StatsValueColumn) + ValueText;
+end;
+
 function BuildBoardLines: TBoardLines;
 var
   Digit: Integer;
 begin
   Result[1] := '';
   Result[2] := '     . . .';
-  Result[3] := '        Number of errors (this game): ' + IntToStr(Game.NbErrors);
+  Result[3] := StatsLine('', 'Number of errors (this game):',
+    IntToStr(Game.NbErrors));
   Result[4] := '    x  . .';
   Result[5] := '   -------';
   Result[6] := '   . . . .';
-  Result[7] := '        Number of completed games: ' + IntToStr(Game.NbCompletedGames);
+  Result[7] := StatsLine('', 'Number of completed games:',
+    IntToStr(Game.NbCompletedGames));
   Result[8] := ' . . . .';
-  Result[9] := ' ---------  Average number of errors: ' + AverageErrorsText;
+  Result[9] := StatsLine(' ---------', 'Average number of errors:',
+    AverageErrorsText);
   Result[10] := ' . . . . .';
 
   for Digit := 0 to DigitCount - 1 do
@@ -417,6 +471,9 @@ end;
 
 procedure CloseGameCore;
 begin
+  if not Game.InProgress then
+    Exit;
+
   Game.InProgress := False;
   Inc(Game.NbCumulatedErrors, Game.NbErrors);
   Inc(Game.NbCompletedGames);
@@ -425,22 +482,47 @@ end;
 function ExtractGuess(const Input: string; out LetterChar, DigitChar: Char): Boolean;
 var
   I: Integer;
-  Ch: Char;
+  Text: string;
+  ParsedLetter: Char;
+  ParsedDigit: Char;
 begin
   Result := False;
   LetterChar := #0;
   DigitChar := #0;
+  Text := Trim(Input);
+  if Text = '' then
+    Exit;
 
-  for I := 1 to Length(Input) do
+  I := 1;
+  ParsedLetter := UpCaseAscii(Text[I]);
+  if (ParsedLetter < 'A') or (ParsedLetter > 'J') then
+    Exit;
+
+  Inc(I);
+  while (I <= Length(Text)) and IsAsciiWhitespace(Text[I]) do
+    Inc(I);
+
+  if (I <= Length(Text)) and (Text[I] = '=') then
   begin
-    Ch := UpCaseAscii(Input[I]);
-    if (LetterChar = #0) and (Ch >= 'A') and (Ch <= 'J') then
-      LetterChar := Ch
-    else if (DigitChar = #0) and (Ch >= '0') and (Ch <= '9') then
-      DigitChar := Ch;
+    Inc(I);
+    while (I <= Length(Text)) and IsAsciiWhitespace(Text[I]) do
+      Inc(I);
   end;
 
-  Result := (LetterChar <> #0) and (DigitChar <> #0);
+  if (I > Length(Text)) or (Text[I] < '0') or (Text[I] > '9') then
+    Exit;
+
+  ParsedDigit := Text[I];
+  Inc(I);
+  while (I <= Length(Text)) and IsAsciiWhitespace(Text[I]) do
+    Inc(I);
+
+  if I <= Length(Text) then
+    Exit;
+
+  LetterChar := ParsedLetter;
+  DigitChar := ParsedDigit;
+  Result := True;
 end;
 
 function TryProposal(const LetterChar, DigitChar: Char; out CorrectDigit: Integer): TGuessResult;
@@ -449,6 +531,9 @@ var
   Digit: Integer;
 begin
   CorrectDigit := -1;
+  if not Game.InProgress then
+    Exit(grNoGame);
+
   Letter := Ord(UpCaseAscii(LetterChar)) - Ord('A');
   Digit := Ord(DigitChar) - Ord('0');
 
@@ -456,9 +541,16 @@ begin
     Exit(grBadInput);
 
   CorrectDigit := Game.LetterToDigit[Letter];
+  if not ValidDigit(CorrectDigit) then
+  begin
+    CorrectDigit := -1;
+    Exit(grBadInput);
+  end;
 
   if DigitSolved(CorrectDigit) then
     Result := grAlreadySolved
+  else if Game.Board[CorrectDigit].Count = 0 then
+    Result := grDoesNotAppear
   else if DigitSolved(Digit) then
     Result := grDigitAlreadyPlaced
   else if Digit = CorrectDigit then
@@ -486,13 +578,7 @@ begin
   if not ExtractGuess(Input, LetterChar, DigitChar) then
     Exit(grBadInput);
 
-  CorrectDigit := Game.LetterToDigit[Ord(LetterChar) - Ord('A')];
-  if DigitSolved(CorrectDigit) then
-    Result := grAlreadySolved
-  else if Game.Board[CorrectDigit].Count = 0 then
-    Result := grDoesNotAppear
-  else
-    Result := TryProposal(LetterChar, DigitChar, CorrectDigit);
+  Result := TryProposal(LetterChar, DigitChar, CorrectDigit);
 end;
 
 procedure ResetGameDefaults;

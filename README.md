@@ -11,21 +11,21 @@ This repository is set up for the Lazarus-bundled Free Pascal compiler:
 .\build.ps1
 ```
 
-The script expects Lazarus at `C:\localdata\dev\lazarus` and writes the program
-to `bin\mpuz_pascal.exe`.
+The script expects Lazarus at `C:\lazarus` by default and writes the program
+to `bin\mpuz_pascal.exe`. Set `LAZARUS_HOME` to use another Lazarus installation.
 The Windows executable `bin\mpuz_pascal.exe` is intentionally tracked so the
 repository includes a ready-to-run binary.
 
 The Lazarus project file can also be built with:
 
 ```powershell
-C:\localdata\dev\lazarus\lazbuild.exe .\mpuz_pascal.lpi
+C:\lazarus\lazbuild.exe .\mpuz_pascal.lpi
 ```
 
 You can also compile directly:
 
 ```powershell
-C:\localdata\dev\lazarus\fpc\3.2.2\bin\x86_64-win64\fpc.exe -Mobjfpc -Scghi -O1 -obin\mpuz_pascal.exe src\mpuz.lpr
+C:\lazarus\fpc\3.2.2\bin\x86_64-win64\fpc.exe -Mobjfpc -Scghi -O1 -obin\mpuz_pascal.exe src\mpuz.lpr
 ```
 
 ## Play

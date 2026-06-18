@@ -1,7 +1,8 @@
 $ErrorActionPreference = 'Stop'
 
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$Fpc = 'C:\localdata\dev\lazarus\fpc\3.2.2\bin\x86_64-win64\fpc.exe'
+$LazarusRoot = if ($env:LAZARUS_HOME) { $env:LAZARUS_HOME } else { 'C:\lazarus' }
+$Fpc = Join-Path $LazarusRoot 'fpc\3.2.2\bin\x86_64-win64\fpc.exe'
 $OutDir = Join-Path $Root 'bin'
 $UnitDir = Join-Path $Root 'lib'
 $Target = Join-Path $OutDir 'mpuz_pascal.exe'
